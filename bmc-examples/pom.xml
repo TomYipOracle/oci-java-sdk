@@ -630,5 +630,15 @@
       <groupId>com.oracle.oci.sdk</groupId>
       <artifactId>oci-java-sdk-accessgovernancecp</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.3</version>
+    </dependency>
+<!--    <dependency>-->
+<!--      <groupId>com.oracle.oci.sdk</groupId>-->
+<!--      <artifactId>oci-java-sdk-shaded-full</artifactId>-->
+<!--      <version>3.5.1-preview1-20230222.214750-2</version>-->
+<!--    </dependency>-->
   </dependencies>
 </project>

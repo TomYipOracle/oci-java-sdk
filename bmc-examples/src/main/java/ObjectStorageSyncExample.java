@@ -25,6 +25,7 @@ public class ObjectStorageSyncExample {
 
         String configurationFilePath = "~/.oci/config";
         String profile = "DEFAULT";
+        String compartmentId = "ocid1.compartment.oc1..aaaaaaaangv63635canrzwktk53434kb4oj47mpxgzvodzi6bx65p6c4wdwq";
 
         // Configuring the AuthenticationDetailsProvider. It's assuming there is a default OCI
         // config file
@@ -38,17 +39,22 @@ public class ObjectStorageSyncExample {
                 new ConfigFileAuthenticationDetailsProvider(configFile);
 
         ObjectStorage client =
-                ObjectStorageClient.builder().region(Region.US_PHOENIX_1).build(provider);
+                ObjectStorageClient.builder().region(Region.US_ASHBURN_1).build(provider);
+
 
         GetNamespaceResponse namespaceResponse =
-                client.getNamespace(GetNamespaceRequest.builder().build());
+                client.getNamespace(
+                        GetNamespaceRequest.builder()
+                                .compartmentId(compartmentId)
+                                .build());
+
         String namespaceName = namespaceResponse.getValue();
         System.out.println("Using namespace: " + namespaceName);
 
         Builder listBucketsBuilder =
                 ListBucketsRequest.builder()
                         .namespaceName(namespaceName)
-                        .compartmentId(provider.getTenantId());
+                        .compartmentId(compartmentId);
 
         String nextToken = null;
         do {
