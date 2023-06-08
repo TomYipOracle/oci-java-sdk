@@ -10,6 +10,7 @@ import com.oracle.bmc.datascience.model.JobLifecycleState;
 import com.oracle.bmc.datascience.model.JobLogConfigurationDetails;
 import com.oracle.bmc.datascience.model.JobRunLifecycleState;
 import com.oracle.bmc.datascience.model.JobShapeConfigDetails;
+import com.oracle.bmc.datascience.model.JobSummary;
 import com.oracle.bmc.datascience.model.ManagedEgressStandaloneJobInfrastructureConfigurationDetails;
 import com.oracle.bmc.datascience.requests.CreateJobArtifactRequest;
 import com.oracle.bmc.datascience.requests.CreateJobRequest;
@@ -17,12 +18,14 @@ import com.oracle.bmc.datascience.requests.CreateJobRunRequest;
 import com.oracle.bmc.datascience.requests.DeleteJobRequest;
 import com.oracle.bmc.datascience.requests.GetJobRequest;
 import com.oracle.bmc.datascience.requests.GetJobRunRequest;
+import com.oracle.bmc.datascience.requests.ListJobsRequest;
 import com.oracle.bmc.datascience.responses.CreateJobArtifactResponse;
 import com.oracle.bmc.datascience.responses.CreateJobResponse;
 import com.oracle.bmc.datascience.responses.CreateJobRunResponse;
 import com.oracle.bmc.datascience.responses.DeleteJobResponse;
 import com.oracle.bmc.datascience.responses.GetJobResponse;
 import com.oracle.bmc.datascience.responses.GetJobRunResponse;
+import com.oracle.bmc.datascience.responses.ListJobsResponse;
 import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.responses.BmcResponse;
 import org.slf4j.Logger;
@@ -48,21 +51,95 @@ public class DataScienceJobExample {
     static String computeShape = "VM.Standard.E3.Flex";
     //static String computeShape = "VM.Standard.E4.Flex";
 
-    static int concurrentTasks = 2;
+    static int concurrentTasks = 120;
+    static int maxJobRetryCount = 5;
 
     static long[] jobElapseTimes = new long[concurrentTasks];
-
+    static int[] jobRetryCount = new int[concurrentTasks];
 
     static Logger logger = LoggerFactory.getLogger(DataScienceJobExample.class);
 
     public static void main(String[] args) throws Exception {
         DataScienceClient client = CreateDSClient();
+
+        String flag = (args.length == 0 || args[0].trim().isEmpty()) ? "1" : args[0].trim();
+        switch(flag) {
+            case "1":
+                RunJobsInParallel(client);
+                break;
+            case "2":
+                ListAndDeleteAllJobs(client);
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid first argument.");
+        }
+    }
+
+    static DataScienceClient CreateDSClient() throws IOException {
+        // Configuring the AuthenticationDetailsProvider. It's assuming there is a default OCI
+        // config file
+        // "~/.oci/config", and a profile in that config with the name "DEFAULT". Make changes to
+        // the following
+        // line if needed and use ConfigFileReader.parse(configurationFilePath, profile);
+
+        final ConfigFileReader.ConfigFile configFile = ConfigFileReader.parseDefault();
+
+        final AuthenticationDetailsProvider provider =
+                new ConfigFileAuthenticationDetailsProvider(configFile);
+
+        DataScienceClient client = DataScienceClient.builder().region(Region.US_ASHBURN_1).build(provider);
+
+        logger.info("Data Science client created.");
+
+        return client;
+    }
+
+    static String CreateJobNamePrefix(){
+        DateTimeFormatter dtFormatter = DateTimeFormatter
+                .ofPattern("yyyy-MM-dd-HH-mm-ss")
+                .withZone(ZoneId.from(ZoneOffset.UTC));
+        String timeStamp = dtFormatter.format(Instant.now());
+
+        return "poc-job-" + timeStamp;
+    }
+
+    static void ListAndDeleteAllJobs(DataScienceClient client){
+
+        ListJobsResponse response;
+        try{
+             response = client.listJobs(ListJobsRequest.builder()
+                    .compartmentId(compartmentId)
+                    .projectId(projectId)
+                    .build());
+        }
+        catch (BmcException be) {
+            logger.error("Error occured while listing jobs in compartment " + compartmentId + ", project " + projectId, be);
+            throw be;
+        }
+
+        try {
+            for (JobSummary jobSummary : response.getItems()) {
+                if(jobSummary.getLifecycleState() != JobLifecycleState.Deleting &&
+                        jobSummary.getLifecycleState() != JobLifecycleState.Deleted) {
+                    logger.info("Deleting job: " + jobSummary.getId());
+                    DeleteJob(client, jobSummary.getId());
+                }
+            }
+        }
+        catch (BmcException be) {
+            logger.error("Error occured while deleting job in compartment " + compartmentId + ", project " + projectId, be);
+            throw be;
+        }
+    }
+
+    static void RunJobsInParallel(DataScienceClient client) throws InterruptedException{
         String jobNamePrefix = CreateJobNamePrefix();
 
         Runnable[] threadTasks = new Runnable[concurrentTasks];
 
         for(int i=0; i<concurrentTasks; i++){
             final int id = i;
+            jobRetryCount[i] = 0;
             threadTasks[i] = () -> {
                 try{
                     RunOneJob(client, jobNamePrefix, id);
@@ -100,48 +177,45 @@ public class DataScienceJobExample {
         logger.info(sb.toString());
     }
 
-    static DataScienceClient CreateDSClient() throws IOException {
-        // Configuring the AuthenticationDetailsProvider. It's assuming there is a default OCI
-        // config file
-        // "~/.oci/config", and a profile in that config with the name "DEFAULT". Make changes to
-        // the following
-        // line if needed and use ConfigFileReader.parse(configurationFilePath, profile);
-
-        final ConfigFileReader.ConfigFile configFile = ConfigFileReader.parseDefault();
-
-        final AuthenticationDetailsProvider provider =
-                new ConfigFileAuthenticationDetailsProvider(configFile);
-
-        DataScienceClient client = DataScienceClient.builder().region(Region.US_ASHBURN_1).build(provider);
-
-        logger.info("Data Science client created.");
-
-        return client;
-    }
-
-    static String CreateJobNamePrefix(){
-        DateTimeFormatter dtFormatter = DateTimeFormatter
-                .ofPattern("yyyy-MM-dd-HH-mm-ss")
-                .withZone(ZoneId.from(ZoneOffset.UTC));
-        String timeStamp = dtFormatter.format(Instant.now());
-
-        return "poc-job-" + timeStamp;
-    }
-
     static void RunOneJob(DataScienceClient client,
                           String jobNamePrefix,
                           int id) throws  InterruptedException, IOException{
         Instant jobStartTime = Instant.now();
 
-        jobNamePrefix += "-" + Thread.currentThread().getName();
+        String jobName = jobNamePrefix + "-" + Thread.currentThread().getName();
 
-        String jobId = CreateJob(client, compartmentId, projectId, logGroupId, jobNamePrefix);
-
-        CreateJobArtifact(client, jobId, artifactFilePath);
-
+        // Create Job
+        String jobId;
         try {
-            String jobRunId = RunJob(client, compartmentId, projectId, jobId);
+            jobId = CreateJob(client, compartmentId, projectId, logGroupId, jobName);
+        }
+        catch(Exception e){
+            logger.error("Failed to create job.", e);
+            throw e;
+        }
 
+        // Create Job artifact
+        try {
+            CreateJobArtifact(client, jobId, artifactFilePath);
+        }
+        catch(Exception e){
+            logger.error("Failed to create job artifact.", e);
+            DeleteJobAndPoll(client, jobId, id, jobStartTime, jobName);
+            throw e;
+        }
+
+        // Start Job
+        String jobRunId;
+        try {
+            jobRunId = RunJob(client, compartmentId, projectId, jobId);
+        }
+        catch(BmcException be){
+            logger.error("Failed to start a job run -> BMC Exception.", be);
+            DeleteJobAndPoll(client, jobId, id, jobStartTime, jobName);
+            throw be;
+        }
+
+        try{
             JobRunLifecycleState currentJobRunState = JobRunLifecycleState.UnknownEnumValue;
             do{
                 Thread.sleep(pollInterval);
@@ -149,24 +223,61 @@ public class DataScienceJobExample {
             }while(currentJobRunState != JobRunLifecycleState.Succeeded);
         }
         catch(BmcException be){
-            logger.error(be.getMessage());
+            logger.error("Failed to get job run state. Will continue to retry. -> BMC Exception.", be);
+            jobRetryCount[id]++;
 
-            throw new RuntimeException(be);
+            if(jobRetryCount[id] > maxJobRetryCount){
+                logger.error("Exhausted all retry attempts. Bailing out...");
+                DeleteJobAndPoll(client, jobId, id, jobStartTime, jobName);
+                throw be;
+            }
         }
-        finally {
+
+        DeleteJobAndPoll(client, jobId, id, jobStartTime, jobName);
+    }
+
+    static void DeleteJobAndPoll(DataScienceClient client,
+                                 String jobId,
+                                 int threadId,
+                                 Instant jobStartTime,
+                                 String jobName) throws InterruptedException{
+        try{
             DeleteJob(client, jobId);
-
-            JobLifecycleState currentJobState = JobLifecycleState.UnknownEnumValue;
-            do{
-                Thread.sleep(pollInterval);
-                currentJobState = GetJobLifecycleState(client, jobId);
-            }while(currentJobState != JobLifecycleState.Deleted);
-
-            jobElapseTimes[id] = Duration.between(jobStartTime, Instant.now()).getSeconds();
-            logger.info("Job '{}' deleted. Elapse time: {} seconds.",
-                    jobNamePrefix,
-                    jobElapseTimes[id]);
         }
+        catch(BmcException be) {
+            logger.error("Failed to delete job.", be);
+            throw be;
+        }
+
+        JobLifecycleState currentJobState = JobLifecycleState.UnknownEnumValue;
+        do{
+            Thread.sleep(pollInterval);
+            try{
+                currentJobState = GetJobLifecycleState(client, jobId);
+            }
+            catch(BmcException be){
+                logger.error("Failed to get job deletion state. Will continue to retry. -> BMC Exception.", be);
+                jobRetryCount[threadId]++;
+
+                if(jobRetryCount[threadId] > maxJobRetryCount){
+                    logger.error("Exhausted all retry attempts. Bailing out...");
+                    logJobBailoutElapseTime(threadId, jobStartTime, jobName);
+                    throw be;
+                }
+            }
+        }while(currentJobState != JobLifecycleState.Deleted);
+
+        jobElapseTimes[threadId] = Duration.between(jobStartTime, Instant.now()).getSeconds();
+        logger.info("Job '{}' deleted. Elapse time: {} seconds.",
+                jobName,
+                jobElapseTimes[threadId]);
+    }
+
+    static void logJobBailoutElapseTime(int threadId, Instant jobStartTime, String jobName){
+        jobElapseTimes[threadId] = Duration.between(jobStartTime, Instant.now()).getSeconds();
+        logger.info("Job '{}' failed and terminated unexpectedly. Elapse time: {} seconds.",
+                jobName,
+                jobElapseTimes[threadId]);
     }
 
     static String CreateJob(DataScienceClient client, String compartmentId, String projectId, String logGroupId, String displayName){
