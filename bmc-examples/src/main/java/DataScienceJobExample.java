@@ -6,6 +6,7 @@ import com.oracle.bmc.datascience.DataScienceClient;
 import com.oracle.bmc.datascience.model.CreateJobDetails;
 import com.oracle.bmc.datascience.model.CreateJobRunDetails;
 import com.oracle.bmc.datascience.model.DefaultJobConfigurationDetails;
+import com.oracle.bmc.datascience.model.FileStorageMountConfigurationDetails;
 import com.oracle.bmc.datascience.model.JobLifecycleState;
 import com.oracle.bmc.datascience.model.JobLogConfigurationDetails;
 import com.oracle.bmc.datascience.model.JobRunLifecycleState;
@@ -26,6 +27,7 @@ import com.oracle.bmc.datascience.responses.DeleteJobResponse;
 import com.oracle.bmc.datascience.responses.GetJobResponse;
 import com.oracle.bmc.datascience.responses.GetJobRunResponse;
 import com.oracle.bmc.datascience.responses.ListJobsResponse;
+import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.responses.BmcResponse;
 import org.slf4j.Logger;
@@ -38,6 +40,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 
 public class DataScienceJobExample {
 
@@ -47,11 +50,17 @@ public class DataScienceJobExample {
     static String compartmentId = "ocid1.compartment.oc1..aaaaaaaangv63635canrzwktk53434kb4oj47mpxgzvodzi6bx65p6c4wdwq";
     static String projectId = "ocid1.datascienceproject.oc1.iad.amaaaaaae5yt27aaobix6vgqwndlfune2rspgxdfzwfynhy43xutv65i4hvq";
     static String logGroupId = "ocid1.loggroup.oc1.iad.amaaaaaae5yt27aa7qaoom3b3nq77ltrzums2a5zadolz4w3ahaqqo27cdaq";
-    static String artifactFilePath = "/Users/tyip/src/poc/ds_js/HelloWorld.sh";
+    static String mountTargetId = "ocid1.mounttarget.oc1.iad.aaaaacvippze26swnfqwillqojxwiotjmfsc2ylefuzaaaaa";
+    static String exportId = "ocid1.export.oc1.iad.aaaaaa4np2umysgpnfqwillqojxwiotjmfsc2ylefuzaaaaa";
+    static String fssMountDestPath = "/ds-poc-file-system";
+    static String artifactFilePath = "/Users/tyip/src/poc/ds_js/FssTest.sh";
+    //static String computeShape = "VM.Standard2.1";
     static String computeShape = "VM.Standard.E3.Flex";
     //static String computeShape = "VM.Standard.E4.Flex";
 
-    static int concurrentTasks = 120;
+    static float computeRamGb = 16f;
+
+    static int concurrentTasks = 1;
     static int maxJobRetryCount = 5;
 
     static long[] jobElapseTimes = new long[concurrentTasks];
@@ -71,7 +80,7 @@ public class DataScienceJobExample {
                 ListAndDeleteAllJobs(client);
                 break;
             default:
-                throw new IllegalArgumentException("Invalid first argument.");
+                RunJobsInParallel(client);
         }
     }
 
@@ -87,7 +96,9 @@ public class DataScienceJobExample {
         final AuthenticationDetailsProvider provider =
                 new ConfigFileAuthenticationDetailsProvider(configFile);
 
-        DataScienceClient client = DataScienceClient.builder().region(Region.US_ASHBURN_1).build(provider);
+        DataScienceClient client = DataScienceClient.builder()
+                .region(Region.US_ASHBURN_1)
+                .build(provider);
 
         logger.info("Data Science client created.");
 
@@ -150,7 +161,7 @@ public class DataScienceJobExample {
                 }
                 catch(InterruptedException ie){
                     logger.info("Interrupting Thread [{}].", Thread.currentThread().getName());
-                    Thread.currentThread().interrupt();;
+                    Thread.currentThread().interrupt();
                 }
             };
         }
@@ -287,19 +298,26 @@ public class DataScienceJobExample {
                 .displayName(displayName)
                 .description("POC of using OCI SDK to create a job.")
                 .jobConfigurationDetails(DefaultJobConfigurationDetails.builder()
+                        //.commandLineArguments("there " + displayName + ".txt")
                         .build())
                 .jobInfrastructureConfigurationDetails(ManagedEgressStandaloneJobInfrastructureConfigurationDetails.builder()
                         .shapeName(computeShape)
                         .blockStorageSizeInGBs(50)
                         .jobShapeConfigDetails(JobShapeConfigDetails.builder()
                                 .ocpus(1f)
-                                .memoryInGBs(16f).build())
+                                .memoryInGBs(computeRamGb).build())
                         .build())
                 .jobLogConfigurationDetails(JobLogConfigurationDetails.builder()
                         .enableLogging(true)
                         .enableAutoLogCreation(true)
                         .logGroupId(logGroupId)
                         .build())
+//                .jobStorageMountConfigurationDetailsList(Arrays.asList(
+//                        FileStorageMountConfigurationDetails.builder()
+//                            .mountTargetId(mountTargetId)
+//                            .exportId(exportId)
+//                            .destinationDirectoryName(fssMountDestPath)
+//                            .build()))
                 .build();
 
         CreateJobRequest request = CreateJobRequest.builder()
