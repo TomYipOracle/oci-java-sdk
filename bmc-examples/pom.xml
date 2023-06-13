@@ -274,10 +274,10 @@
       <groupId>com.oracle.oci.sdk</groupId>
       <artifactId>oci-java-sdk-dataflow</artifactId>
     </dependency>
-    <dependency>
-      <groupId>com.oracle.oci.sdk</groupId>
-      <artifactId>oci-java-sdk-datascience</artifactId>
-    </dependency>
+<!--    <dependency>-->
+<!--      <groupId>com.oracle.oci.sdk</groupId>-->
+<!--      <artifactId>oci-java-sdk-datascience</artifactId>-->
+<!--    </dependency>-->
     <dependency>
       <groupId>com.oracle.oci.sdk</groupId>
       <artifactId>oci-java-sdk-nosql</artifactId>
@@ -629,6 +629,16 @@
     <dependency>
       <groupId>com.oracle.oci.sdk</groupId>
       <artifactId>oci-java-sdk-accessgovernancecp</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.oracle.oci.sdk</groupId>
+      <artifactId>oci-java-sdk-shaded-full</artifactId>
+      <version>3.16.2-preview1-20230606.173829-1</version>
     </dependency>
   </dependencies>
 </project>
